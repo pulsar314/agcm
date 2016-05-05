@@ -8,6 +8,7 @@ import logging
 import re
 
 if version_info.major == 2:
+    # noinspection PyUnresolvedReferences
     from urllib2 import unquote
 else:
     from urllib.parse import unquote
@@ -75,7 +76,8 @@ class GCMInvalidInputException(GCMException):
 
 
 # TODO: Refactor this to be more human-readable
-# TODO: Use OrderedDict for the result type to be able to preserve the order of the messages returned by GCM server
+# TODO: Use OrderedDict for the result type to be able
+#       to preserve the order of the messages returned by GCM server
 def group_response(response, registration_ids, key):
     # Pair up results and reg_ids
     mapping = zip(registration_ids, response['results'])
@@ -99,7 +101,8 @@ def get_retry_after(response_headers):
         # Parse from seconds (e.g. Retry-After: 120)
         if type(retry_after) is int:
             return retry_after
-        # Parse from HTTP-Date (e.g. Retry-After: Fri, 31 Dec 1999 23:59:59 GMT)
+        # Parse from HTTP-Date
+        # (e.g. Retry-After: Fri, 31 Dec 1999 23:59:59 GMT)
         else:
             try:
                 from email.utils import parsedate
@@ -139,15 +142,19 @@ class Payload(object):
         if not (0 <= value <= self.GCM_TTL):
             raise GCMInvalidTtlException("Invalid time to live value")
 
-    def validate_registration_ids(self, registration_ids):
+    @staticmethod
+    def validate_registration_ids(registration_ids):
 
         if len(registration_ids) > 1000:
-            raise GCMTooManyRegIdsException("Exceded number of registration_ids")
+            raise GCMTooManyRegIdsException(
+                "Exceded number of registration_ids")
 
-    def validate_to(self, value):
+    @staticmethod
+    def validate_to(value):
         if not re.match(Payload.topicPattern, value):
             raise GCMInvalidInputException(
-                "Invalid topic name: {0}! Does not match the {1} pattern".format(value, Payload.topicPattern))
+                "Invalid topic name: {0}! Does not match the {1} pattern"
+                .format(value, Payload.topicPattern))
 
     @property
     def body(self):
@@ -185,8 +192,10 @@ class GCM(object):
     def __init__(self, api_key, proxy=None, timeout=None, debug=False):
         """ api_key : google api key
             url: url of gcm service.
-            proxy: can be string "http://host:port" or dict {'https':'host:port'}
-            timeout: timeout for every HTTP request, see 'requests' documentation for possible values.
+            proxy: can be string "http://host:port"
+                   or dict {'https':'host:port'}
+            timeout: timeout for every HTTP request,
+                     see 'requests' documentation for possible values.
         """
         self.api_key = api_key
         self.url = GCM_URL
@@ -207,7 +216,8 @@ class GCM(object):
     @staticmethod
     def enable_logging(level=logging.DEBUG, handler=None):
         """
-        Helper for quickly adding a StreamHandler to the logger. Useful for debugging.
+        Helper for quickly adding a StreamHandler to the logger.
+        Useful for debugging.
 
         :param handler:
         :param level:
@@ -215,11 +225,13 @@ class GCM(object):
         """
         if not handler:
             # Use a singleton logging_handler instead of recreating it,
-            # so we can remove-and-re-add safely without having duplicate handlers
+            # so we can remove-and-re-add safely
+            # without having duplicate handlers
             if GCM.logging_handler is None:
                 GCM.logging_handler = logging.StreamHandler()
                 GCM.logging_handler.setFormatter(logging.Formatter(
-                    '[%(asctime)s - %(levelname)s - %(filename)s:%(lineno)s - %(funcName)s()] %(message)s'))
+                    '[%(asctime)s - %(levelname)s - %(filename)s:%(lineno)s'
+                    ' - %(funcName)s()] %(message)s'))
             handler = GCM.logging_handler
 
         GCM.logger = logging.getLogger(__name__)
@@ -234,7 +246,8 @@ class GCM(object):
         requests_logger.removeHandler(handler)
         requests_logger.addHandler(handler)
         requests_logger.setLevel(level)
-        GCM.log('Added a stderr logging handler to logger: {0}', requests_logger_name)
+        GCM.log('Added a stderr logging handler to logger: {0}',
+                requests_logger_name)
 
     @staticmethod
     def log(message, *data):
@@ -255,15 +268,18 @@ class GCM(object):
 
         if is_json:
             if 'topic' not in kwargs and 'registration_ids' not in kwargs:
-                raise GCMMissingRegistrationException("Missing registration_ids or topic")
+                raise GCMMissingRegistrationException(
+                    "Missing registration_ids or topic")
             elif 'topic' in kwargs and 'registration_ids' in kwargs:
                 raise GCMInvalidInputException(
-                    "Invalid parameters! Can't have both 'registration_ids' and 'to' as input parameters")
+                    "Invalid parameters! Can't have both 'registration_ids' "
+                    "and 'to' as input parameters")
 
             if 'topic' in kwargs:
                 kwargs['to'] = '/topics/{}'.format(kwargs.pop('topic'))
             elif 'registration_ids' not in kwargs:
-                raise GCMMissingRegistrationException("Missing registration_ids")
+                raise GCMMissingRegistrationException(
+                    "Missing registration_ids")
 
             payload = JsonPayload(**kwargs).body
         else:
@@ -276,9 +292,12 @@ class GCM(object):
         Makes a HTTP request to GCM servers with the constructed payload
 
         :param data: return value from construct_payload method
+        :param is_json:
         :param session: requests.Session object to use for request (optional)
+        :type  session: requests.Session | None
         :raises GCMMalformedJsonException: if malformed JSON request found
-        :raises GCMAuthenticationException: if there was a problem with authentication, invalid api key
+        :raises GCMAuthenticationException: if there was a problem w
+                ith authentication, invalid api key
         :raises GCMConnectionException: if GCM is screwed
         """
 
@@ -289,7 +308,8 @@ class GCM(object):
         if is_json:
             headers['Content-Type'] = 'application/json'
         else:
-            headers['Content-Type'] = 'application/x-www-form-urlencoded;charset=UTF-8'
+            headers['Content-Type'] = \
+                'application/x-www-form-urlencoded;charset=UTF-8'
 
         GCM.log('Request URL: {0}', self.url)
         GCM.log('Request headers: {0}', headers)
@@ -311,7 +331,8 @@ class GCM(object):
             if new_session:
                 new_session.close()
 
-        GCM.log('Response status: {0} {1}', response.status_code, response.reason)
+        GCM.log(
+            'Response status: {0} {1}', response.status_code, response.reason)
         GCM.log('Response headers: {0}', response.headers)
         GCM.log('Response data: {0}', response.text)
 
@@ -344,7 +365,8 @@ class GCM(object):
         if error == 'InvalidRegistration':
             raise GCMInvalidRegistrationException("Registration ID is invalid")
         elif error == 'Unavailable':
-            # Plain-text requests will never return Unavailable as the error code.
+            # Plain-text requests will never return Unavailable
+            # as the error code.
             # http://developer.android.com/guide/google/gcm/gcm.html#error_codes
             raise GCMUnavailableException(
                     "Server unavailable. Resent the message")
@@ -361,8 +383,9 @@ class GCM(object):
 
     def handle_plaintext_response(self, response):
         if type(response) not in [bytes, str]:
-            raise TypeError("Invalid type for response parameter! Expected: bytes or str. "
-                            "Actual: {0}".format(type(response).__name__))
+            raise TypeError("Invalid type for response parameter! "
+                            "Expected: bytes or str. Actual: {0}"
+                            .format(type(response).__name__))
 
         # Split response by line
         if version_info.major == 3 and type(response) is bytes:
@@ -379,13 +402,16 @@ class GCM(object):
         else:  # Canonical_id from the second line
             if len(response_lines) == 2:
                 return unquote(response_lines[1].split('=')[1])
-            return None  # TODO: Decide a way to return message id without breaking backwards compatibility
+            # TODO: Decide a way to return message id
+            # without breaking backwards compatibility
+            return None
             # unquote(value)  # ID of the sent message (from the first line)
 
     @staticmethod
     def handle_json_response(response, registration_ids):
         errors = group_response(response, registration_ids, 'error')
-        canonical = group_response(response, registration_ids, 'registration_id')
+        canonical = group_response(
+            response, registration_ids, 'registration_id')
         success = group_response(response, registration_ids, 'message_id')
 
         info = {}
@@ -418,7 +444,8 @@ class GCM(object):
         """
         Makes a plaintext request to GCM servers
 
-        :return dict of response body from Google including multicast_id, success, failure, canonical_ids, etc
+        :return dict of response body from Google including multicast_id,
+                success, failure, canonical_ids, etc
         """
         if 'registration_id' not in kwargs:
             raise GCMMissingRegistrationException("Missing registration_id")
@@ -435,22 +462,25 @@ class GCM(object):
 
         for attempt in range(retries):
             try:
-                response = self.make_request(payload, is_json=False, session=session)
+                response = self.make_request(
+                    payload, is_json=False, session=session)
                 info = self.handle_plaintext_response(response)
                 has_error = False
             except GCMUnavailableException:
                 has_error = True
 
             if self.retry_after:
-                GCM.log("[plaintext_request - Attempt #{0}] Retry-After ~> Sleeping for {1} seconds".format(attempt,
-                                                                                                            self.retry_after))
+                GCM.log("[plaintext_request - Attempt #{0}] "
+                        "Retry-After ~> Sleeping for {1} seconds"
+                        .format(attempt, self.retry_after))
                 time.sleep(self.retry_after)
                 self.retry_after = None
             elif has_error:
                 sleep_time = backoff / 2 + random.randrange(backoff)
                 nap_time = float(sleep_time) / 1000
-                GCM.log(
-                    "[plaintext_request - Attempt #{0}]Backoff ~> Sleeping for {1} seconds".format(attempt, nap_time))
+                GCM.log("[plaintext_request - Attempt #{0}] "
+                        "Backoff ~> Sleeping for {1} seconds"
+                        .format(attempt, nap_time))
                 time.sleep(nap_time)
                 if 2 * backoff < self.MAX_BACKOFF_DELAY:
                     backoff *= 2
@@ -467,7 +497,8 @@ class GCM(object):
         Makes a JSON request to GCM servers
 
         :param kwargs: dict mapping of key-value pairs of parameters
-        :return dict of response body from Google including multicast_id, success, failure, canonical_ids, etc
+        :return dict of response body from Google including multicast_id,
+                success, failure, canonical_ids, etc
         """
         if 'registration_ids' not in kwargs:
             raise GCMMissingRegistrationException("Missing registration_ids")
@@ -486,7 +517,8 @@ class GCM(object):
 
         for attempt in range(retries):
             try:
-                response = self.make_request(payload, is_json=True, session=session)
+                response = self.make_request(
+                    payload, is_json=True, session=session)
                 info = self.handle_json_response(response, registration_ids)
                 unsent_reg_ids = self.extract_unsent_reg_ids(info)
                 has_error = False
@@ -502,14 +534,17 @@ class GCM(object):
                 payload = self.construct_payload(**args)
 
                 if self.retry_after:
-                    GCM.log("[json_request - Attempt #{0}] Retry-After ~> Sleeping for {1}".format(attempt,
-                                                                                                   self.retry_after))
+                    GCM.log("[json_request - Attempt #{0}] "
+                            "Retry-After ~> Sleeping for {1}"
+                            .format(attempt, self.retry_after))
                     time.sleep(self.retry_after)
                     self.retry_after = None
                 else:
                     sleep_time = backoff / 2 + random.randrange(backoff)
                     nap_time = float(sleep_time) / 1000
-                    GCM.log("[json_request - Attempt #{0}] Backoff ~> Sleeping for {1}".format(attempt, nap_time))
+                    GCM.log("[json_request - Attempt #{0}] "
+                            "Backoff ~> Sleeping for {1}"
+                            .format(attempt, nap_time))
                     time.sleep(nap_time)
                     if 2 * backoff < self.MAX_BACKOFF_DELAY:
                         backoff *= 2
@@ -546,11 +581,13 @@ class GCM(object):
 
         for attempt in range(retries):
             try:
-                response = self.make_request(payload, is_json=True, session=session)
+                response = self.make_request(
+                    payload, is_json=True, session=session)
                 return self.handle_topic_response(response)
             except (GCMUnavailableException, GCMTopicMessageException):
                 if self.retry_after:
-                    GCM.log("[send_topic_message - Attempt #{0}] Retry-After ~> Sleeping for {1}"
+                    GCM.log("[send_topic_message - Attempt #{0}] "
+                            "Retry-After ~> Sleeping for {1}"
                             .format(attempt, self.retry_after))
 
                     time.sleep(self.retry_after)
@@ -558,7 +595,9 @@ class GCM(object):
                 else:
                     sleep_time = backoff / 2 + random.randrange(backoff)
                     nap_time = float(sleep_time) / 1000
-                    GCM.log("[send_topic_message - Attempt #{0}] Backoff ~> Sleeping for {1}".format(attempt, nap_time))
+                    GCM.log("[send_topic_message - Attempt #{0}] "
+                            "Backoff ~> Sleeping for {1}"
+                            .format(attempt, nap_time))
                     time.sleep(nap_time)
                     if 2 * backoff < self.MAX_BACKOFF_DELAY:
                         backoff *= 2
