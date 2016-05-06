@@ -1,23 +1,21 @@
-import requests
-import json
 from collections import defaultdict
-import time
-import random
 from sys import version_info
 import logging
 import re
+import json
+import random
+import asyncio
 
-if version_info.major == 2:
-    # noinspection PyUnresolvedReferences
-    from urllib2 import unquote
-else:
-    from urllib.parse import unquote
+import aiohttp
+from urllib.parse import unquote
 
 GCM_URL = 'https://gcm-http.googleapis.com/gcm/send'
 
 
 class GCMException(Exception):
-    pass
+    def __init__(self, *args, retry_after=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.retry_after = retry_after
 
 
 class GCMMalformedJsonException(GCMException):
@@ -187,72 +185,21 @@ class GCM(object):
     BACKOFF_INITIAL_DELAY = 1000
     MAX_BACKOFF_DELAY = 1024000
     logger = None
-    logging_handler = None
 
-    def __init__(self, api_key, proxy=None, timeout=None, debug=False):
+    def __init__(self, api_key, debug=False):
         """ api_key : google api key
             url: url of gcm service.
-            proxy: can be string "http://host:port"
-                   or dict {'https':'host:port'}
-            timeout: timeout for every HTTP request,
-                     see 'requests' documentation for possible values.
         """
         self.api_key = api_key
         self.url = GCM_URL
 
-        if isinstance(proxy, str):
-            protocol = self.url.split(':')[0]
-            self.proxy = {protocol: proxy}
-        else:
-            self.proxy = proxy
-
-        self.timeout = timeout
         self.debug = debug
-        self.retry_after = None
-
         if self.debug:
-            GCM.enable_logging()
+            self.logger = logging.getLogger(__name__)
 
-    @staticmethod
-    def enable_logging(level=logging.DEBUG, handler=None):
-        """
-        Helper for quickly adding a StreamHandler to the logger.
-        Useful for debugging.
-
-        :param handler:
-        :param level:
-        :return: the handler after adding it
-        """
-        if not handler:
-            # Use a singleton logging_handler instead of recreating it,
-            # so we can remove-and-re-add safely
-            # without having duplicate handlers
-            if GCM.logging_handler is None:
-                GCM.logging_handler = logging.StreamHandler()
-                GCM.logging_handler.setFormatter(logging.Formatter(
-                    '[%(asctime)s - %(levelname)s - %(filename)s:%(lineno)s'
-                    ' - %(funcName)s()] %(message)s'))
-            handler = GCM.logging_handler
-
-        GCM.logger = logging.getLogger(__name__)
-        GCM.logger.removeHandler(handler)
-        GCM.logger.addHandler(handler)
-        GCM.logger.setLevel(level)
-        GCM.log('Added a stderr logging handler to logger: {0}', __name__)
-
-        # Enable requests logging
-        requests_logger_name = 'requests.packages.urllib3'
-        requests_logger = logging.getLogger(requests_logger_name)
-        requests_logger.removeHandler(handler)
-        requests_logger.addHandler(handler)
-        requests_logger.setLevel(level)
-        GCM.log('Added a stderr logging handler to logger: {0}',
-                requests_logger_name)
-
-    @staticmethod
-    def log(message, *data):
-        if GCM.logger and message:
-            GCM.logger.debug(message.format(*data))
+    def log(self, message, *data):
+        if self.logger and message:
+            self.logger.debug(message.format(*data))
 
     @staticmethod
     def construct_payload(**kwargs):
@@ -287,14 +234,14 @@ class GCM(object):
 
         return payload
 
-    def make_request(self, data, is_json=True, session=None):
+    async def make_request(self, data, is_json=True, session=None):
         """
         Makes a HTTP request to GCM servers with the constructed payload
 
         :param data: return value from construct_payload method
         :param is_json:
-        :param session: requests.Session object to use for request (optional)
-        :type  session: requests.Session | None
+        :param session: aiohttp.ClientSession object to use for request
+        :type  session: aiohttp.ClientSession | None
         :raises GCMMalformedJsonException: if malformed JSON request found
         :raises GCMAuthenticationException: if there was a problem w
                 ith authentication, invalid api key
@@ -311,57 +258,51 @@ class GCM(object):
             headers['Content-Type'] = \
                 'application/x-www-form-urlencoded;charset=UTF-8'
 
-        GCM.log('Request URL: {0}', self.url)
-        GCM.log('Request headers: {0}', headers)
-        GCM.log('Request proxy: {0}', self.proxy)
-        GCM.log('Request timeout: {0}', self.timeout)
-        GCM.log('Request data: {0}', data)
-        GCM.log('Request is_json: {0}', is_json)
+        self.log('Request URL: {0}', self.url)
+        self.log('Request headers: {0}', headers)
+        self.log('Request data: {0}', data)
+        self.log('Request is_json: {0}', is_json)
 
         new_session = None
         if not session:
-            session = new_session = requests.Session()
+            session = new_session = aiohttp.ClientSession()
 
         try:
-            response = session.post(
-                    self.url, data=data, headers=headers,
-                    proxies=self.proxy, timeout=self.timeout,
-            )
+            response = await session.post(self.url, data=data, headers=headers)
         finally:
             if new_session:
                 new_session.close()
 
-        GCM.log(
-            'Response status: {0} {1}', response.status_code, response.reason)
-        GCM.log('Response headers: {0}', response.headers)
-        GCM.log('Response data: {0}', response.text)
-
-        # 5xx or 200 + error:Unavailable
-        self.retry_after = get_retry_after(response.headers)
+        text = await response.text()
+        self.log('Response status: {0} {1}', response.status, response.reason)
+        self.log('Response headers: {0}', response.headers)
+        self.log('Response data: {0}', text)
 
         # Successful response
-        if response.status_code == 200:
-            if is_json:
-                response = response.json()
-            else:
-                response = response.content
+        if response.status == 200:
             return response
 
         # Failures
-        if response.status_code == 400:
+        retry_after = get_retry_after(response.headers)
+
+        if response.status == 400:
             raise GCMMalformedJsonException(
-                    "The request could not be parsed as JSON")
-        elif response.status_code == 401:
+                "The request could not be parsed as JSON",
+                retry_after=retry_after)
+        elif response.status == 401:
             raise GCMAuthenticationException(
-                    "There was an error authenticating the sender account")
-        elif response.status_code == 503:
-            raise GCMUnavailableException("GCM service is unavailable")
+                "There was an error authenticating the sender account",
+                retry_after=retry_after)
+        elif response.status == 503:
+            raise GCMUnavailableException(
+                "GCM service is unavailable",
+                retry_after=retry_after)
         else:
             error = "GCM service error: %d" % response.status_code
-            raise GCMUnavailableException(error)
+            raise GCMUnavailableException(error, retry_after=retry_after)
 
     @staticmethod
-    def raise_error(error):
+    def raise_error(error, retry_after=None):
         if error == 'InvalidRegistration':
             raise GCMInvalidRegistrationException("Registration ID is invalid")
         elif error == 'Unavailable':
@@ -369,19 +310,26 @@ class GCM(object):
             # as the error code.
             # http://developer.android.com/guide/google/gcm/gcm.html#error_codes
             raise GCMUnavailableException(
-                    "Server unavailable. Resent the message")
+                "Server unavailable. Resent the message",
+                retry_after=retry_after)
         elif error == 'NotRegistered':
             raise GCMNotRegisteredException(
-                    "Registration id is not valid anymore")
+                "Registration id is not valid anymore",
+                retry_after=retry_after)
         elif error == 'MismatchSenderId':
             raise GCMMismatchSenderIdException(
-                    "A Registration ID is tied to a certain group of senders")
+                "A Registration ID is tied to a certain group of senders",
+                retry_after=retry_after)
         elif error == 'MessageTooBig':
-            raise GCMMessageTooBigException("Message can't exceed 4096 bytes")
+            raise GCMMessageTooBigException(
+                "Message can't exceed 4096 bytes",
+                retry_after=retry_after)
         elif error == 'MissingRegistration':
-            raise GCMMissingRegistrationException("Missing registration")
+            raise GCMMissingRegistrationException(
+                "Missing registration",
+                retry_after=retry_after)
 
-    def handle_plaintext_response(self, response):
+    def handle_plaintext_response(self, response, retry_after=None):
         if type(response) not in [bytes, str]:
             raise TypeError("Invalid type for response parameter! "
                             "Expected: bytes or str. Actual: {0}"
@@ -398,7 +346,7 @@ class GCM(object):
 
         # Error on first line
         if key == 'Error':
-            self.raise_error(value)
+            self.raise_error(value, retry_after=retry_after)
         else:  # Canonical_id from the second line
             if len(response_lines) == 2:
                 return unquote(response_lines[1].split('=')[1])
@@ -428,10 +376,10 @@ class GCM(object):
         return info
 
     @staticmethod
-    def handle_topic_response(response):
+    def handle_topic_response(response, retry_after=None):
         error = response.get('error')
         if error:
-            raise GCMTopicMessageException(error)
+            raise GCMTopicMessageException(error, retry_after=retry_after)
         return response['message_id']
 
     @staticmethod
@@ -440,7 +388,7 @@ class GCM(object):
             return info['errors']['Unavailable']
         return []
 
-    def plaintext_request(self, **kwargs):
+    async def plaintext_request(self, **kwargs):
         """
         Makes a plaintext request to GCM servers
 
@@ -462,28 +410,33 @@ class GCM(object):
 
         for attempt in range(retries):
             try:
-                response = self.make_request(
+                response = await self.make_request(
                     payload, is_json=False, session=session)
-                info = self.handle_plaintext_response(response)
+                text = await response.text()
+                retry_after = get_retry_after(response.headers)
+                info = self.handle_plaintext_response(text, retry_after)
                 has_error = False
-            except GCMUnavailableException:
+
+            except GCMUnavailableException as e:
+                retry_after = e.retry_after
                 has_error = True
 
-            if self.retry_after:
-                GCM.log("[plaintext_request - Attempt #{0}] "
-                        "Retry-After ~> Sleeping for {1} seconds"
-                        .format(attempt, self.retry_after))
-                time.sleep(self.retry_after)
-                self.retry_after = None
+            if retry_after:
+                self.log("[plaintext_request - Attempt #{0}] "
+                         "Retry-After ~> Sleeping for {1} seconds"
+                         .format(attempt, retry_after))
+                await asyncio.sleep(retry_after)
+
             elif has_error:
                 sleep_time = backoff / 2 + random.randrange(backoff)
                 nap_time = float(sleep_time) / 1000
-                GCM.log("[plaintext_request - Attempt #{0}] "
-                        "Backoff ~> Sleeping for {1} seconds"
-                        .format(attempt, nap_time))
-                time.sleep(nap_time)
+                self.log("[plaintext_request - Attempt #{0}] "
+                         "Backoff ~> Sleeping for {1} seconds"
+                         .format(attempt, nap_time))
+                await asyncio.sleep(nap_time)
                 if 2 * backoff < self.MAX_BACKOFF_DELAY:
                     backoff *= 2
+
             else:
                 break
 
@@ -492,7 +445,7 @@ class GCM(object):
 
         return info
 
-    def json_request(self, **kwargs):
+    async def json_request(self, **kwargs):
         """
         Makes a JSON request to GCM servers
 
@@ -517,12 +470,16 @@ class GCM(object):
 
         for attempt in range(retries):
             try:
-                response = self.make_request(
+                response = await self.make_request(
                     payload, is_json=True, session=session)
-                info = self.handle_json_response(response, registration_ids)
+                json_ = await response.json()
+                retry_after = get_retry_after(response.headers)
+                info = self.handle_json_response(json_, registration_ids)
                 unsent_reg_ids = self.extract_unsent_reg_ids(info)
                 has_error = False
-            except GCMUnavailableException:
+
+            except GCMUnavailableException as e:
+                retry_after = e.retry_after
                 unsent_reg_ids = registration_ids
                 has_error = True
 
@@ -533,21 +490,22 @@ class GCM(object):
                 args['registration_ids'] = registration_ids
                 payload = self.construct_payload(**args)
 
-                if self.retry_after:
-                    GCM.log("[json_request - Attempt #{0}] "
-                            "Retry-After ~> Sleeping for {1}"
-                            .format(attempt, self.retry_after))
-                    time.sleep(self.retry_after)
-                    self.retry_after = None
+                if retry_after:
+                    self.log("[json_request - Attempt #{0}] "
+                             "Retry-After ~> Sleeping for {1}"
+                             .format(attempt, retry_after))
+                    await asyncio.sleep(retry_after)
+
                 else:
                     sleep_time = backoff / 2 + random.randrange(backoff)
                     nap_time = float(sleep_time) / 1000
-                    GCM.log("[json_request - Attempt #{0}] "
-                            "Backoff ~> Sleeping for {1}"
-                            .format(attempt, nap_time))
-                    time.sleep(nap_time)
+                    self.log("[json_request - Attempt #{0}] "
+                             "Backoff ~> Sleeping for {1}"
+                             .format(attempt, nap_time))
+                    await asyncio.sleep(nap_time)
                     if 2 * backoff < self.MAX_BACKOFF_DELAY:
                         backoff *= 2
+
             else:
                 break
 
@@ -556,10 +514,11 @@ class GCM(object):
 
         return info
 
-    def send_downstream_message(self, **kwargs):
-        return self.json_request(**kwargs)
+    async def send_downstream_message(self, **kwargs):
+        response = await self.json_request(**kwargs)
+        return response
 
-    def send_topic_message(self, **kwargs):
+    async def send_topic_message(self, **kwargs):
         """
         Publish Topic Messaging to GCM servers
         Ref: https://developers.google.com/cloud-messaging/topic-messaging
@@ -581,24 +540,29 @@ class GCM(object):
 
         for attempt in range(retries):
             try:
-                response = self.make_request(
+                response = await self.make_request(
                     payload, is_json=True, session=session)
-                return self.handle_topic_response(response)
-            except (GCMUnavailableException, GCMTopicMessageException):
-                if self.retry_after:
-                    GCM.log("[send_topic_message - Attempt #{0}] "
-                            "Retry-After ~> Sleeping for {1}"
-                            .format(attempt, self.retry_after))
+                json_ = await response.json()
+                retry_after = get_retry_after(response.headers)
+                return self.handle_topic_response(json_, retry_after)
 
-                    time.sleep(self.retry_after)
-                    self.retry_after = None
+            except (GCMUnavailableException, GCMTopicMessageException) as e:
+                retry_after = e.retry_after
+
+                if retry_after:
+                    self.log("[send_topic_message - Attempt #{0}] "
+                             "Retry-After ~> Sleeping for {1}"
+                             .format(attempt, retry_after))
+
+                    await asyncio.sleep(retry_after)
+
                 else:
                     sleep_time = backoff / 2 + random.randrange(backoff)
                     nap_time = float(sleep_time) / 1000
-                    GCM.log("[send_topic_message - Attempt #{0}] "
-                            "Backoff ~> Sleeping for {1}"
-                            .format(attempt, nap_time))
-                    time.sleep(nap_time)
+                    self.log("[send_topic_message - Attempt #{0}] "
+                             "Backoff ~> Sleeping for {1}"
+                             .format(attempt, nap_time))
+                    await asyncio.sleep(nap_time)
                     if 2 * backoff < self.MAX_BACKOFF_DELAY:
                         backoff *= 2
 

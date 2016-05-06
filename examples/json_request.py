@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from gcm import GCM
+from agcm import GCM
 
 # JSON request
 
