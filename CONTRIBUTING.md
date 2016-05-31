@@ -1,7 +1,7 @@
-Contributing to python-gcm
+Contributing to python-fcm
 ===
 We'd love to accept your patches!
-To contribute to python-gcm simply open a pull request against the [develop branch](https://github.com/geeknam/python-gcm/tree/develop)
+To contribute to python-fcm simply open a pull request against the [develop branch]https://github.com/lostdragon/python-fcm/tree/develop)
 
 Some things that will increase the chance that your pull request is accepted:
 * Succinctly describe your changes in the pull request description

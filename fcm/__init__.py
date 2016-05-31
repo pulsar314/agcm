@@ -1,11 +1,11 @@
-from .gcm import GCM  # pylint: disable=unused-import
+from .fcm import FCM, TopicManager  # pylint: disable=unused-import
 
 # -----------------------------------------------------------------------------
 
 # Set default logging handler to avoid "No handler found" warnings.
 import logging
 
-assert GCM
+assert FCM
 
 try:  # Python 2.7+
     from logging import NullHandler
