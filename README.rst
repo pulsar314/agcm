@@ -1,24 +1,6 @@
 python-fcm
 ======================
 
-.. image:: https://badges.gitter.im/Join%20Chat.svg
-:alt: Join the chat at https://gitter.im/geeknam/python-fcm
-   :target: https://gitter.im/geeknam/python-fcm?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge
-.. image:: https://img.shields.io/pypi/v/python-fcm.svg
-:target: https://pypi.python.org/pypi/python-fcm
-.. image:: https://img.shields.io/pypi/dm/python-fcm.svg
-:target: https://pypi.python.org/pypi/python-fcm
-.. image:: https://secure.travis-ci.org/geeknam/python-fcm.png?branch=master
-:alt: Build Status
-   :target: http://travis-ci.org/geeknam/python-fcm
-.. image:: https://landscape.io/github/geeknam/python-fcm/master/landscape.png
-:target: https://landscape.io/github/geeknam/python-fcm/master
-   :alt: Code Health
-.. image:: https://coveralls.io/repos/geeknam/python-fcm/badge.svg?branch=master
-:target: https://coveralls.io/r/geeknam/python-fcm
-.. image:: https://img.shields.io/gratipay/geeknam.svg
-:target: https://gratipay.com/geeknam/
-
 Python client for Google Cloud Messaging for Android (FCM)
 
 Installation
