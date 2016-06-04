@@ -254,16 +254,14 @@ class FCM(object):
         is_json = kwargs.pop('is_json', True)
 
         if is_json:
-            if 'topic' not in kwargs and 'registration_ids' not in kwargs:
-                raise FCMMissingRegistrationException("Missing registration_ids or topic")
+            if 'topic' not in kwargs and 'registration_ids' not in kwargs and 'condition' not in kwargs:
+                raise FCMMissingRegistrationException("Missing registration_ids or topic or condition")
             elif 'topic' in kwargs and 'registration_ids' in kwargs:
                 raise FCMInvalidInputException(
                     "Invalid parameters! Can't have both 'registration_ids' and 'to' as input parameters")
 
             if 'topic' in kwargs:
                 kwargs['to'] = '/topics/{}'.format(kwargs.pop('topic'))
-            elif 'registration_ids' not in kwargs:
-                raise FCMMissingRegistrationException("Missing registration_ids")
 
             payload = JsonPayload(**kwargs).body
         else:
@@ -538,10 +536,11 @@ class FCM(object):
         :raises FCMInvalidInputException: if the topic is empty
         """
 
-        if 'topic' not in kwargs:
-            raise FCMInvalidInputException("Topic name missing!")
-        elif not kwargs['topic']:
-            raise FCMInvalidInputException("Topic name cannot be empty!")
+        if 'topic' not in kwargs and 'condition' not in kwargs:
+            raise FCMInvalidInputException("Topic or condition missing!")
+
+        elif not kwargs.get('topic') and not kwargs.get('condition'):
+            raise FCMInvalidInputException("Topic or condition cannot be empty!")
 
         retries = kwargs.pop('retries', 5)
         session = kwargs.pop('session', None)
