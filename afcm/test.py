@@ -1,5 +1,5 @@
 import unittest
-from .gcm import *
+from .afcm import *
 import json
 from mock import MagicMock, Mock, PropertyMock, patch, sentinel
 import asyncio

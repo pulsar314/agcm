@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from gcm import FCM
+from afcm import FCM
 
 # Topic Messaging
 

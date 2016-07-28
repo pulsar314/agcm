@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from gcm import FCM
+from afcm import FCM
 
 # Plain text request
 
