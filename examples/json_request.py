@@ -1,27 +1,27 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
-from agcm import GCM
+from gcm import FCM
 
 # JSON request
 
 API_KEY = "your api key"
 
-gcm = GCM(API_KEY)
+fcm = FCM(API_KEY)
 
 registration_ids = ["your token 1", "your token 2"]
 
 notification = {
     "title": "Awesome App Update",
-    "message": "Tap here to start the update!",
-    "uri": "market://details?id=gcm.play.android.samples.com.gcmquickstart"
+    "body": "body",
 }
 
-response = gcm.json_request(registration_ids=registration_ids,
-                            data=notification,
-                            collapse_key='awesomeapp_update',
-                            restricted_package_name="gcm.play.android.samples.com.gcmquickstart",
-                            priority='high',
-                            delay_while_idle=False)
+response = fcm.json_request(
+    registration_ids=registration_ids,
+    notification=notification,
+    # collapse_key='awesomeapp_update',
+    # restricted_package_name="com.google.firebase.quickstart.fcm",
+    priority='high',
+    delay_while_idle=False)
 
 # Successfully handled registration_ids
 if response and 'success' in response:

@@ -9,73 +9,72 @@ import asyncio
 import aiohttp
 from urllib.parse import unquote
 
-GCM_URL = 'https://gcm-http.googleapis.com/gcm/send'
+FCM_URL = 'https://fcm.googleapis.com/fcm/send'
 
 
-class GCMException(Exception):
+class FCMException(Exception):
     def __init__(self, *args, retry_after=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.retry_after = retry_after
 
 
-class GCMMalformedJsonException(GCMException):
+class FCMMalformedJsonException(FCMException):
     pass
 
 
-class GCMConnectionException(GCMException):
+class FCMConnectionException(FCMException):
     pass
 
 
-class GCMAuthenticationException(GCMException):
+class FCMAuthenticationException(FCMException):
     pass
 
 
-class GCMTooManyRegIdsException(GCMException):
+class FCMTooManyRegIdsException(FCMException):
     pass
 
 
-class GCMInvalidTtlException(GCMException):
+class FCMInvalidTtlException(FCMException):
     pass
 
 
-class GCMTopicMessageException(GCMException):
+class FCMTopicMessageException(FCMException):
     pass
 
 
 # Exceptions from Google responses
 
 
-class GCMMissingRegistrationException(GCMException):
+class FCMMissingRegistrationException(FCMException):
     pass
 
 
-class GCMMismatchSenderIdException(GCMException):
+class FCMMismatchSenderIdException(FCMException):
     pass
 
 
-class GCMNotRegisteredException(GCMException):
+class FCMNotRegisteredException(FCMException):
     pass
 
 
-class GCMMessageTooBigException(GCMException):
+class FCMMessageTooBigException(FCMException):
     pass
 
 
-class GCMInvalidRegistrationException(GCMException):
+class FCMInvalidRegistrationException(FCMException):
     pass
 
 
-class GCMUnavailableException(GCMException):
+class FCMUnavailableException(FCMException):
     pass
 
 
-class GCMInvalidInputException(GCMException):
+class FCMInvalidInputException(FCMException):
     pass
 
 
 # TODO: Refactor this to be more human-readable
-# TODO: Use OrderedDict for the result type to be able
-#       to preserve the order of the messages returned by GCM server
+# TODO: Use OrderedDict for the result type to be able to preserve the order of the messages returned by FCM server
 def group_response(response, registration_ids, key):
     # Pair up results and reg_ids
     mapping = zip(registration_ids, response['results'])
@@ -118,7 +117,7 @@ class Payload(object):
     """
 
     # TTL in seconds
-    GCM_TTL = 2419200
+    FCM_TTL = 2419200
 
     topicPattern = re.compile('/topics/[a-zA-Z0-9-_.~%]+')
 
@@ -137,22 +136,20 @@ class Payload(object):
                 validate_method(value)
 
     def validate_time_to_live(self, value):
-        if not (0 <= value <= self.GCM_TTL):
-            raise GCMInvalidTtlException("Invalid time to live value")
+        if not (0 <= value <= self.FCM_TTL):
+            raise FCMInvalidTtlException("Invalid time to live value")
 
     @staticmethod
     def validate_registration_ids(registration_ids):
 
         if len(registration_ids) > 1000:
-            raise GCMTooManyRegIdsException(
-                "Exceded number of registration_ids")
+            raise FCMTooManyRegIdsException("Exceded number of registration_ids")
 
     @staticmethod
     def validate_to(value):
         if not re.match(Payload.topicPattern, value):
-            raise GCMInvalidInputException(
-                "Invalid topic name: {0}! Does not match the {1} pattern"
-                .format(value, Payload.topicPattern))
+            raise FCMInvalidInputException(
+                "Invalid topic name: {0}! Does not match the {1} pattern".format(value, Payload.topicPattern))
 
     @property
     def body(self):
@@ -164,9 +161,7 @@ class PlaintextPayload(Payload):
     def body(self):
         # Safeguard for backwards compatibility
         if 'registration_id' not in self.__dict__:
-            self.__dict__['registration_id'] = self.__dict__.pop(
-                    'registration_ids', None
-            )
+            self.__dict__['registration_id'] = self.__dict__.pop('registration_ids', None)
         # Inline data for for plaintext request
         data = self.__dict__.pop('data')
         for key, value in data.items():
@@ -180,7 +175,7 @@ class JsonPayload(Payload):
         return json.dumps(self.__dict__)
 
 
-class GCM(object):
+class FCM(object):
     # Timeunit is milliseconds.
     BACKOFF_INITIAL_DELAY = 1000
     MAX_BACKOFF_DELAY = 1024000
@@ -188,10 +183,12 @@ class GCM(object):
 
     def __init__(self, api_key, debug=False):
         """ api_key : google api key
-            url: url of gcm service.
+            url: url of fcm service.
+            proxy: can be string "http://host:port" or dict {'https':'host:port'}
+            timeout: timeout for every HTTP request, see 'requests' documentation for possible values.
         """
         self.api_key = api_key
-        self.url = GCM_URL
+        self.url = FCM_URL
 
         self.debug = debug
         if self.debug:
@@ -208,25 +205,22 @@ class GCM(object):
         Encodes the dictionary into JSON if for json requests.
 
         :return constructed dict or JSON payload
-        :raises GCMInvalidTtlException: if time_to_live is invalid
+        :raises FCMInvalidTtlException: if time_to_live is invalid
         """
 
         is_json = kwargs.pop('is_json', True)
 
         if is_json:
-            if 'topic' not in kwargs and 'registration_ids' not in kwargs:
-                raise GCMMissingRegistrationException(
-                    "Missing registration_ids or topic")
+            if 'topic' not in kwargs and 'registration_ids' not in kwargs and 'condition' not in kwargs:
+                raise FCMMissingRegistrationException("Missing registration_ids or topic or condition")
             elif 'topic' in kwargs and 'registration_ids' in kwargs:
-                raise GCMInvalidInputException(
-                    "Invalid parameters! Can't have both 'registration_ids' "
-                    "and 'to' as input parameters")
+                raise FCMInvalidInputException(
+                    "Invalid parameters! Can't have both 'registration_ids' and 'to' as input parameters")
 
             if 'topic' in kwargs:
                 kwargs['to'] = '/topics/{}'.format(kwargs.pop('topic'))
             elif 'registration_ids' not in kwargs:
-                raise GCMMissingRegistrationException(
-                    "Missing registration_ids")
+                raise FCMMissingRegistrationException("Missing registration_ids")
 
             payload = JsonPayload(**kwargs).body
         else:
@@ -236,16 +230,15 @@ class GCM(object):
 
     async def make_request(self, data, is_json=True, session=None):
         """
-        Makes a HTTP request to GCM servers with the constructed payload
+        Makes a HTTP request to FCM servers with the constructed payload
 
         :param data: return value from construct_payload method
         :param is_json:
         :param session: aiohttp.ClientSession object to use for request
         :type  session: aiohttp.ClientSession | None
-        :raises GCMMalformedJsonException: if malformed JSON request found
-        :raises GCMAuthenticationException: if there was a problem w
-                ith authentication, invalid api key
-        :raises GCMConnectionException: if GCM is screwed
+        :raises FCMMalformedJsonException: if malformed JSON request found
+        :raises FCMAuthenticationException: if there was a problem with authentication, invalid api key
+        :raises FCMConnectionException: if FCM is screwed
         """
 
         headers = {
@@ -286,53 +279,37 @@ class GCM(object):
         retry_after = get_retry_after(response.headers)
 
         if response.status == 400:
-            raise GCMMalformedJsonException(
-                "The request could not be parsed as JSON",
-                retry_after=retry_after)
+            raise FCMMalformedJsonException("The request could not be parsed as JSON", retry_after=retry_after)
         elif response.status == 401:
-            raise GCMAuthenticationException(
-                "There was an error authenticating the sender account",
-                retry_after=retry_after)
+            raise FCMAuthenticationException(
+                "There was an error authenticating the sender account", retry_after=retry_after)
         elif response.status == 503:
-            raise GCMUnavailableException(
-                "GCM service is unavailable",
-                retry_after=retry_after)
+            raise FCMUnavailableException("GCM service is unavailable", retry_after=retry_after)
         else:
             error = "GCM service error: %d" % response.status_code
-            raise GCMUnavailableException(error, retry_after=retry_after)
+            raise FCMUnavailableException(error, retry_after=retry_after)
 
     @staticmethod
     def raise_error(error, retry_after=None):
         if error == 'InvalidRegistration':
-            raise GCMInvalidRegistrationException("Registration ID is invalid")
+            raise FCMInvalidRegistrationException("Registration ID is invalid")
         elif error == 'Unavailable':
-            # Plain-text requests will never return Unavailable
-            # as the error code.
-            # http://developer.android.com/guide/google/gcm/gcm.html#error_codes
-            raise GCMUnavailableException(
-                "Server unavailable. Resent the message",
-                retry_after=retry_after)
+            # Plain-text requests will never return Unavailable # as the error code.
+            # http://developer.android.com/guide/google/fcm/fcm.html#error_codes
+            raise FCMUnavailableException("Server unavailable. Resent the message", retry_after=retry_after)
         elif error == 'NotRegistered':
-            raise GCMNotRegisteredException(
-                "Registration id is not valid anymore",
-                retry_after=retry_after)
+            raise FCMNotRegisteredException("Registration id is not valid anymore", retry_after=retry_after)
         elif error == 'MismatchSenderId':
-            raise GCMMismatchSenderIdException(
-                "A Registration ID is tied to a certain group of senders",
-                retry_after=retry_after)
+            raise FCMMismatchSenderIdException(
+                "A Registration ID is tied to a certain group of senders", retry_after=retry_after)
         elif error == 'MessageTooBig':
-            raise GCMMessageTooBigException(
-                "Message can't exceed 4096 bytes",
-                retry_after=retry_after)
+            raise FCMMessageTooBigException("Message can't exceed 4096 bytes", retry_after=retry_after)
         elif error == 'MissingRegistration':
-            raise GCMMissingRegistrationException(
-                "Missing registration",
-                retry_after=retry_after)
+            raise FCMMissingRegistrationException("Missing registration", retry_after=retry_after)
 
     def handle_plaintext_response(self, response, retry_after=None):
         if type(response) not in [bytes, str]:
-            raise TypeError("Invalid type for response parameter! "
-                            "Expected: bytes or str. Actual: {0}"
+            raise TypeError("Invalid type for response parameter! Expected: bytes or str. Actual: {0}"
                             .format(type(response).__name__))
 
         # Split response by line
@@ -379,7 +356,7 @@ class GCM(object):
     def handle_topic_response(response, retry_after=None):
         error = response.get('error')
         if error:
-            raise GCMTopicMessageException(error, retry_after=retry_after)
+            raise FCMTopicMessageException(error, retry_after=retry_after)
         return response['message_id']
 
     @staticmethod
@@ -390,15 +367,15 @@ class GCM(object):
 
     async def plaintext_request(self, **kwargs):
         """
-        Makes a plaintext request to GCM servers
+        Makes a plaintext request to FCM servers
 
         :return dict of response body from Google including multicast_id,
                 success, failure, canonical_ids, etc
         """
         if 'registration_id' not in kwargs:
-            raise GCMMissingRegistrationException("Missing registration_id")
+            raise FCMMissingRegistrationException("Missing registration_id")
         elif not kwargs['registration_id']:
-            raise GCMMissingRegistrationException("Empty registration_id")
+            raise FCMMissingRegistrationException("Empty registration_id")
 
         kwargs['is_json'] = False
         retries = kwargs.pop('retries', 5)
@@ -410,28 +387,25 @@ class GCM(object):
 
         for attempt in range(retries):
             try:
-                response = await self.make_request(
-                    payload, is_json=False, session=session)
+                response = await self.make_request(payload, is_json=False, session=session)
                 text = await response.text()
                 retry_after = get_retry_after(response.headers)
                 info = self.handle_plaintext_response(text, retry_after)
                 has_error = False
 
-            except GCMUnavailableException as e:
+            except FCMUnavailableException as e:
                 retry_after = e.retry_after
                 has_error = True
 
             if retry_after:
-                self.log("[plaintext_request - Attempt #{0}] "
-                         "Retry-After ~> Sleeping for {1} seconds"
+                self.log("[plaintext_request - Attempt #{0}] Retry-After ~> Sleeping for {1} seconds"
                          .format(attempt, retry_after))
                 await asyncio.sleep(retry_after)
 
             elif has_error:
                 sleep_time = backoff / 2 + random.randrange(backoff)
                 nap_time = float(sleep_time) / 1000
-                self.log("[plaintext_request - Attempt #{0}] "
-                         "Backoff ~> Sleeping for {1} seconds"
+                self.log("[plaintext_request - Attempt #{0}] Backoff ~> Sleeping for {1} seconds"
                          .format(attempt, nap_time))
                 await asyncio.sleep(nap_time)
                 if 2 * backoff < self.MAX_BACKOFF_DELAY:
@@ -447,16 +421,16 @@ class GCM(object):
 
     async def json_request(self, **kwargs):
         """
-        Makes a JSON request to GCM servers
+        Makes a JSON request to FCM servers
 
         :param kwargs: dict mapping of key-value pairs of parameters
         :return dict of response body from Google including multicast_id,
                 success, failure, canonical_ids, etc
         """
         if 'registration_ids' not in kwargs:
-            raise GCMMissingRegistrationException("Missing registration_ids")
+            raise FCMMissingRegistrationException("Missing registration_ids")
         elif not kwargs['registration_ids']:
-            raise GCMMissingRegistrationException("Empty registration_ids")
+            raise FCMMissingRegistrationException("Empty registration_ids")
 
         args = dict(**kwargs)
 
@@ -470,15 +444,14 @@ class GCM(object):
 
         for attempt in range(retries):
             try:
-                response = await self.make_request(
-                    payload, is_json=True, session=session)
+                response = await self.make_request(payload, is_json=True, session=session)
                 json_ = await response.json()
                 retry_after = get_retry_after(response.headers)
                 info = self.handle_json_response(json_, registration_ids)
                 unsent_reg_ids = self.extract_unsent_reg_ids(info)
                 has_error = False
 
-            except GCMUnavailableException as e:
+            except FCMUnavailableException as e:
                 retry_after = e.retry_after
                 unsent_reg_ids = registration_ids
                 has_error = True
@@ -491,16 +464,14 @@ class GCM(object):
                 payload = self.construct_payload(**args)
 
                 if retry_after:
-                    self.log("[json_request - Attempt #{0}] "
-                             "Retry-After ~> Sleeping for {1}"
+                    self.log("[json_request - Attempt #{0}] Retry-After ~> Sleeping for {1}"
                              .format(attempt, retry_after))
                     await asyncio.sleep(retry_after)
 
                 else:
                     sleep_time = backoff / 2 + random.randrange(backoff)
                     nap_time = float(sleep_time) / 1000
-                    self.log("[json_request - Attempt #{0}] "
-                             "Backoff ~> Sleeping for {1}"
+                    self.log("[json_request - Attempt #{0}] Backoff ~> Sleeping for {1}"
                              .format(attempt, nap_time))
                     await asyncio.sleep(nap_time)
                     if 2 * backoff < self.MAX_BACKOFF_DELAY:
@@ -520,18 +491,19 @@ class GCM(object):
 
     async def send_topic_message(self, **kwargs):
         """
-        Publish Topic Messaging to GCM servers
+        Publish Topic Messaging to FCM servers
         Ref: https://developers.google.com/cloud-messaging/topic-messaging
 
         :param kwargs: dict mapping of key-value pairs of parameters
         :return message_id
-        :raises GCMInvalidInputException: if the topic is empty
+        :raises FCMInvalidInputException: if the topic is empty
         """
 
-        if 'topic' not in kwargs:
-            raise GCMInvalidInputException("Topic name missing!")
-        elif not kwargs['topic']:
-            raise GCMInvalidInputException("Topic name cannot be empty!")
+        if 'topic' not in kwargs and 'condition' not in kwargs:
+            raise FCMInvalidInputException("Topic or condition missing!")
+
+        elif not kwargs.get('topic') and not kwargs.get('condition'):
+            raise FCMInvalidInputException("Topic or condition cannot be empty!")
 
         retries = kwargs.pop('retries', 5)
         session = kwargs.pop('session', None)
@@ -540,18 +512,16 @@ class GCM(object):
 
         for attempt in range(retries):
             try:
-                response = await self.make_request(
-                    payload, is_json=True, session=session)
+                response = await self.make_request(payload, is_json=True, session=session)
                 json_ = await response.json()
                 retry_after = get_retry_after(response.headers)
                 return self.handle_topic_response(json_, retry_after)
 
-            except (GCMUnavailableException, GCMTopicMessageException) as e:
+            except (FCMUnavailableException, FCMTopicMessageException) as e:
                 retry_after = e.retry_after
 
                 if retry_after:
-                    self.log("[send_topic_message - Attempt #{0}] "
-                             "Retry-After ~> Sleeping for {1}"
+                    self.log("[send_topic_message - Attempt #{0}] Retry-After ~> Sleeping for {1}"
                              .format(attempt, retry_after))
 
                     await asyncio.sleep(retry_after)
@@ -559,11 +529,278 @@ class GCM(object):
                 else:
                     sleep_time = backoff / 2 + random.randrange(backoff)
                     nap_time = float(sleep_time) / 1000
-                    self.log("[send_topic_message - Attempt #{0}] "
-                             "Backoff ~> Sleeping for {1}"
+                    self.log("[send_topic_message - Attempt #{0}] Backoff ~> Sleeping for {1}"
                              .format(attempt, nap_time))
                     await asyncio.sleep(nap_time)
                     if 2 * backoff < self.MAX_BACKOFF_DELAY:
                         backoff *= 2
 
         raise IOError("Could not make request after %d attempts" % retries)
+
+
+class TopicManager(object):
+    # Timeunit is milliseconds.
+    BACKOFF_INITIAL_DELAY = 1000
+    MAX_BACKOFF_DELAY = 1024000
+    logger = None
+
+    def __init__(self, api_key, proxy=None, timeout=None, debug=False):
+        """ api_key : google api key
+            url: url of fcm service.
+            proxy: can be string "http://host:port" or dict {'https':'host:port'}
+            timeout: timeout for every HTTP request, see 'requests' documentation for possible values.
+        """
+        self.api_key = api_key
+        self.url = "https://iid.googleapis.com/iid"
+
+        if isinstance(proxy, str):
+            protocol = self.url.split(':')[0]
+            self.proxy = {protocol: proxy}
+        else:
+            self.proxy = proxy
+
+        self.timeout = timeout
+        self.debug = debug
+        self.retry_after = None
+
+        if self.debug:
+            self.logger = logging.getLogger(__name__)
+
+    def log(self, message, *data):
+        if self.logger and message:
+            self.logger.debug(message.format(*data))
+
+    async def make_request(self, url, data=None, session=None):
+        """
+        Makes a HTTP request to FCM servers with the constructed payload
+
+        :param url: request url
+        :type url: str
+        :param data: return value from construct_payload method
+        :type data:
+        :param session: requests.Session object to use for request (optional)
+        :type session: requests.Sesstion
+        :raises FCMMalformedJsonException: if malformed JSON request found
+        :raises FCMAuthenticationException: if there was a problem with authentication, invalid api key
+        :raises FCMConnectionException: if FCM is screwed
+        """
+
+        headers = {
+            'Authorization': 'key=%s' % self.api_key,
+            'Content-Type': 'application/json'
+        }
+
+        self.log('Request URL: {0}', url)
+        self.log('Request headers: {0}', headers)
+        self.log('Request data: {0}', data)
+
+        new_session = None
+        if not session:
+            session = new_session = aiohttp.ClientSession()
+
+        try:
+            response = await session.post(url, data=data, headers=headers)
+        finally:
+            if new_session:
+                new_session.close()
+
+        text = await response.text()
+        self.log('Response status: {0} {1}', response.status, response.reason)
+        self.log('Response headers: {0}', response.headers)
+        self.log('Response data: {0}', text)
+
+        # Successful response
+        if response.status == 200:
+            return response
+
+        # Failures
+        retry_after = get_retry_after(response.headers)
+
+        if response.status == 400:
+            raise FCMMalformedJsonException("The request could not be parsed as JSON", retry_after=retry_after)
+        elif response.status == 401:
+            raise FCMAuthenticationException(
+                "There was an error authenticating the sender account", retry_after=retry_after)
+        elif response.status == 503:
+            raise FCMUnavailableException("GCM service is unavailable", retry_after=retry_after)
+        else:
+            error = "GCM service error: %d" % response.status_code
+            raise FCMUnavailableException(error, retry_after=retry_after)
+
+    @staticmethod
+    def handle_json_response(response, registration_ids):
+        errors = group_response(response, registration_ids, 'error')
+        canonical = group_response(response, registration_ids, 'registration_id')
+        success = group_response(response, registration_ids, 'message_id')
+
+        info = {}
+
+        if errors:
+            info.update({'errors': errors})
+
+        if canonical:
+            info.update({'canonical': canonical})
+
+        if success:
+            info.update({'success': success})
+
+        return info
+
+    @staticmethod
+    def extract_unsent_reg_ids(info):
+        if 'errors' in info and 'Unavailable' in info['errors']:
+            return info['errors']['Unavailable']
+        return []
+
+    async def json_request(self, **kwargs):
+        """
+        Makes a JSON request to FCM servers
+
+        :param kwargs: dict mapping of key-value pairs of parameters
+        :return dict of response body from Google including multicast_id, success, failure, canonical_ids, etc
+        """
+
+        args = dict(**kwargs)
+
+        retries = args.pop('retries', 5)
+        session = args.pop('session', None)
+
+        method = args.pop('method', 'get')
+        url = args.pop('url')
+
+        backoff = self.BACKOFF_INITIAL_DELAY
+        info = None
+        has_error = False
+
+        if method == 'post' and 'topic' in args and 'registration_ids' in args:
+            payload = self.construct_payload(**args)
+            registration_ids = args['registration_ids']
+
+        else:
+            payload = None
+            registration_ids = None
+
+        for attempt in range(retries):
+            try:
+                response = await self.make_request(url=url, data=payload, session=session)
+                if method == 'get':
+                    info = await response.text()
+                    break
+
+                json_ = await response.json()
+                retry_after = get_retry_after(response.headers)
+                info = self.handle_json_response(json_, registration_ids)
+                unsent_reg_ids = self.extract_unsent_reg_ids(info)
+                has_error = False
+
+            except FCMUnavailableException as e:
+                retry_after = e.retry_after
+                unsent_reg_ids = registration_ids
+                has_error = True
+
+            if unsent_reg_ids:
+                registration_ids = unsent_reg_ids
+
+                # Make the retry request with the unsent registration ids
+                args['registration_ids'] = registration_ids
+                payload = self.construct_payload(**args)
+
+                if retry_after:
+                    self.log("[json_request - Attempt #{0}] Retry-After ~> Sleeping for {1}"
+                             .format(attempt, self.retry_after))
+                    await asyncio.sleep(retry_after)
+
+                else:
+                    sleep_time = backoff / 2 + random.randrange(backoff)
+                    nap_time = float(sleep_time) / 1000
+                    self.log("[json_request - Attempt #{0}] Backoff ~> Sleeping for {1}".format(attempt, nap_time))
+                    await asyncio.sleep(nap_time)
+                    if 2 * backoff < self.MAX_BACKOFF_DELAY:
+                        backoff *= 2
+            else:
+                break
+
+        if has_error:
+            raise IOError("Could not make request after %d attempts" % retries)
+
+        return info
+
+    @staticmethod
+    def construct_payload(**kwargs):
+        """
+        Construct the dictionary mapping of parameters.
+        Encodes the dictionary into JSON if for json requests.
+
+        :return constructed dict or JSON payload
+        :raises FCMInvalidTtlException: if time_to_live is invalid
+        """
+
+        if 'topic' not in kwargs or 'registration_ids' not in kwargs:
+            raise FCMMissingRegistrationException("Missing registration_ids and topic")
+
+        if 'topic' in kwargs:
+            kwargs['to'] = '/topics/{}'.format(kwargs.pop('topic'))
+
+        # replace param_name registration_ids to registration_tokens
+        payload = JsonPayload(**kwargs).body.replace('registration_ids', 'registration_tokens')
+
+        return payload
+
+    async def batch_add(self, topic, registration_ids):
+        """
+        bulk addition of app instances to a GCM topic
+
+        :param topic: topic name
+        :type topic: str
+        :param registration_ids: Instance IDs
+        :type registration_ids: list
+        :return:
+        :rtype:
+        """
+        url = '{0}/v1:batchAdd'.format(self.url)
+        response = await self.json_request(method='post', url=url, topic=topic, registration_ids=registration_ids)
+        return response
+
+    async def batch_remove(self, topic, registration_ids):
+        """
+        bulk removal of app instances to a GCM topic
+
+        :param topic: topic name
+        :type topic: str
+        :param registration_ids: Instance IDs
+        :type registration_ids: list
+        :return:
+        :rtype:
+        """
+        url = '{0}/v1:batchRemove'.format(self.url)
+        response = await self.json_request(method='post', url=url, topic=topic, registration_ids=registration_ids)
+        return response
+
+    async def info(self, registration_id, details=True):
+        """
+        Get information about app instances
+        :param details:
+        :param registration_id: Instance ID
+        :type registration_id: str
+        :return:
+        :rtype: dict
+
+        application - package name associated with the token.
+        authorizedEntity - projectId authorized to send to the token.
+        applicationVersion - version of the application.
+        appSigner - sha1 fingerprint for the signature applied to the package.
+        Indicates which party signed the app; for example,Play Store.
+        attestStatus - returns ROOTED, NOT_ROOTED, or UNKNOWN to indicate whether or not the device is rooted.
+        platform - returns ANDROID, IOS, or CHROME to indicate the device platform to which the token belongs.
+
+        If the details flag is set:
+
+        connectionType - returns WIFI, MOBILE or OTHER. Returns nothing if the connection is uninitialized.
+        connectDate - the date the device was last seen.
+        rel - relations associated with the token. For example, a list of topic subscriptions.
+
+        """
+
+        url = '{0}/info/{1}{2}'.format(self.url, registration_id, '?details=true' if details is True else '')
+        response = await self.json_request(method='get', url=url)
+        return response

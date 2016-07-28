@@ -1,5 +1,5 @@
 import unittest
-from .agcm import *
+from .gcm import *
 import json
 from mock import MagicMock, Mock, PropertyMock, patch, sentinel
 import asyncio
@@ -17,10 +17,10 @@ def create_side_effect(returns):
     return side_effect
 
 
-class GCMTest(unittest.TestCase):
+class FCMTest(unittest.TestCase):
 
     def setUp(self):
-        self.gcm = GCM('123api')
+        self.fcm = FCM('123api')
         self.data = {
             'param1': '1',
             'param2': '2'
@@ -56,7 +56,7 @@ class GCMTest(unittest.TestCase):
         asyncio.sleep = Mock()
 
     def test_construct_payload(self):
-        res = self.gcm.construct_payload(
+        res = self.fcm.construct_payload(
             registration_ids=['1', '2'], data=self.data, collapse_key='foo',
             delay_while_idle=True, time_to_live=3600,
             is_json=True, dry_run=True
@@ -69,7 +69,7 @@ class GCMTest(unittest.TestCase):
         self.assertNotIn('priority', payload)
 
     def test_construct_payload_with_priority(self):
-        res = self.gcm.construct_payload(
+        res = self.fcm.construct_payload(
             registration_ids=['1', '2'], data=self.data, collapse_key='foo',
             delay_while_idle=True, time_to_live=3600,
             is_json=True, dry_run=True, priority=10
@@ -81,8 +81,7 @@ class GCMTest(unittest.TestCase):
 
     def test_json_payload(self):
         reg_ids = ['12', '145', '56']
-        json_payload = self.gcm.construct_payload(
-            registration_ids=reg_ids, data=self.data)
+        json_payload = self.fcm.construct_payload(registration_ids=reg_ids, data=self.data)
         payload = json.loads(json_payload)
 
         self.assertIn('registration_ids', payload)
@@ -90,7 +89,7 @@ class GCMTest(unittest.TestCase):
         self.assertEqual(payload['registration_ids'], reg_ids)
 
     def test_plaintext_payload(self):
-        result = self.gcm.construct_payload(
+        result = self.fcm.construct_payload(
             registration_ids='1234', data=self.data, is_json=False
         )
         self.assertIn('registration_id', result)
@@ -99,7 +98,7 @@ class GCMTest(unittest.TestCase):
 
     def test_topic_payload(self):
         topic = 'foo'
-        json_payload = self.gcm.construct_payload(topic=topic,
+        json_payload = self.fcm.construct_payload(topic=topic,
                                                   data=self.data)
         payload = json.loads(json_payload)
 
@@ -107,45 +106,41 @@ class GCMTest(unittest.TestCase):
         self.assertEqual(payload.get('to'), '/topics/foo')
 
     def test_invalid_registration_ids_and_topic(self):
-        with self.assertRaises(GCMMissingRegistrationException):
-            self.gcm.construct_payload()
+        with self.assertRaises(FCMMissingRegistrationException):
+            self.fcm.construct_payload()
 
-        with self.assertRaises(GCMInvalidInputException):
+        with self.assertRaises(FCMInvalidInputException):
             reg_ids = ['12', '145', '56']
             topic = 'foo'
-            self.gcm.construct_payload(registration_ids=reg_ids,
+            self.fcm.construct_payload(registration_ids=reg_ids,
                                        topic=topic)
 
     def test_limit_reg_ids(self):
         reg_ids = range(1003)
         self.assertTrue(len(reg_ids) > 1000)
-        with self.assertRaises(GCMTooManyRegIdsException):
-            self.gcm.json_request(
-                registration_ids=reg_ids, data=self.data)
+        with self.assertRaises(FCMTooManyRegIdsException):
+            self.fcm.json_request(registration_ids=reg_ids, data=self.data)
 
     def test_missing_reg_id(self):
-        with self.assertRaises(GCMMissingRegistrationException):
-            self.gcm.json_request(registration_ids=[], data=self.data)
+        with self.assertRaises(FCMMissingRegistrationException):
+            self.fcm.json_request(registration_ids=[], data=self.data)
 
-        with self.assertRaises(GCMMissingRegistrationException):
-            self.gcm.plaintext_request(
-                registration_id=None, data=self.data)
+        with self.assertRaises(FCMMissingRegistrationException):
+            self.fcm.plaintext_request(registration_id=None, data=self.data)
 
     def test_empty_topic(self):
-        with self.assertRaises(GCMInvalidInputException):
-            self.gcm.send_topic_message(topic='', data=self.data)
+        with self.assertRaises(FCMInvalidInputException):
+            self.fcm.send_topic_message(topic='', data=self.data)
 
     def test_invalid_ttl(self):
-        with self.assertRaises(GCMInvalidTtlException):
-            self.gcm.construct_payload(
-                registration_ids='1234', data=self.data,
-                is_json=False, time_to_live=5000000
+        with self.assertRaises(FCMInvalidTtlException):
+            self.fcm.construct_payload(
+                registration_ids='1234', data=self.data, is_json=False, time_to_live=5000000
             )
 
-        with self.assertRaises(GCMInvalidTtlException):
-            self.gcm.construct_payload(
-                registration_ids='1234', data=self.data,
-                is_json=False, time_to_live=-10
+        with self.assertRaises(FCMInvalidTtlException):
+            self.fcm.construct_payload(
+                registration_ids='1234', data=self.data, is_json=False, time_to_live=-10
             )
 
     def test_group_response(self):
@@ -186,7 +181,7 @@ class GCMTest(unittest.TestCase):
 
     def test_handle_json_response(self):
         ids = ['123', '345', '678', '999', '1919', '5443']
-        res = self.gcm.handle_json_response(self.response, ids)
+        res = self.fcm.handle_json_response(self.response, ids)
 
         self.assertIn('errors', res)
         self.assertIn('NotRegistered', res['errors'])
@@ -204,7 +199,7 @@ class GCMTest(unittest.TestCase):
                 {'message_id': '5456453453'},
             ]
         }
-        res = self.gcm.handle_json_response(response, ids)
+        res = self.fcm.handle_json_response(response, ids)
 
         self.assertNotIn('errors', res)
         self.assertNotIn('canonical', res)
@@ -212,24 +207,24 @@ class GCMTest(unittest.TestCase):
 
     def test_handle_plaintext_response(self):
         response = 'Error=NotRegistered'
-        with self.assertRaises(GCMNotRegisteredException):
-            self.gcm.handle_plaintext_response(response)
+        with self.assertRaises(FCMNotRegisteredException):
+            self.fcm.handle_plaintext_response(response)
 
         response = 'id=23436576'
-        res = self.gcm.handle_plaintext_response(response)
+        res = self.fcm.handle_plaintext_response(response)
         self.assertIsNone(res)
 
         response = 'id=23436576\nregistration_id=3456'
-        res = self.gcm.handle_plaintext_response(response)
+        res = self.fcm.handle_plaintext_response(response)
         self.assertEqual(res, '3456')
 
     def test_handle_topic_response(self):
         response = {'error': 'TopicsMessageRateExceeded'}
-        with self.assertRaises(GCMTopicMessageException):
-            self.gcm.handle_topic_response(response)
+        with self.assertRaises(FCMTopicMessageException):
+            self.fcm.handle_topic_response(response)
 
         response = {'message_id': '10'}
-        res = self.gcm.handle_topic_response(response)
+        res = self.fcm.handle_topic_response(response)
         self.assertEqual('10', res)
 
     @patch('aiohttp.ClientSession.post')
@@ -239,7 +234,7 @@ class GCMTest(unittest.TestCase):
         mock_request.return_value.status_code = 200
         mock_request.return_value.content = "OK"
         # Perform request
-        self.gcm.make_request(
+        self.fcm.make_request(
             {'message': 'test'}, is_json=True
         )
         self.assertTrue(mock_request.return_value.json.called)
@@ -251,26 +246,26 @@ class GCMTest(unittest.TestCase):
         mock_request.return_value.status_code = 200
         mock_request.return_value.content = "OK"
         # Perform request
-        response = self.gcm.make_request(
+        response = self.fcm.make_request(
             {'message': 'test'}, is_json=False
         )
         self.assertEqual(response, "OK")
 
         mock_request.return_value.status_code = 400
-        with self.assertRaises(GCMMalformedJsonException):
-            self.gcm.make_request(
+        with self.assertRaises(FCMMalformedJsonException):
+            response = self.fcm.make_request(
                 {'message': 'test'}, is_json=False
             )
 
         mock_request.return_value.status_code = 401
-        with self.assertRaises(GCMAuthenticationException):
-            self.gcm.make_request(
+        with self.assertRaises(FCMAuthenticationException):
+            response = self.fcm.make_request(
                 {'message': 'test'}, is_json=False
             )
 
         mock_request.return_value.status_code = 503
-        with self.assertRaises(GCMUnavailableException):
-            self.gcm.make_request(
+        with self.assertRaises(FCMUnavailableException):
+            response = self.fcm.make_request(
                 {'message': 'test'}, is_json=False
             )
 
@@ -281,7 +276,7 @@ class GCMTest(unittest.TestCase):
             'message': u'\x80abc'
         }
         try:
-            self.gcm.make_request(data, is_json=False)
+            self.fcm.make_request(data, is_json=False)
         except:
             pass
         self.assertTrue(mock_request.called)
@@ -295,69 +290,51 @@ class GCMTest(unittest.TestCase):
         """ Test make_request uses timeout. """
         mock_request.return_value.status_code = 200
         mock_request.return_value.content = "OK"
-        gcm = GCM('123api')
+        fcm = FCM('123api')
 
-        gcm.make_request(
+        fcm.make_request(
             {'message': 'test'}, is_json=True
         )
         mock_request.assert_called_once_with(
-            GCM_URL, data={'message': 'test'},
-            headers={'Authorization': 'key=123api',
-                     'Content-Type': 'application/json'},
-            proxies=None,
+            FCM_URL, data={'message': 'test'},
+            headers={'Authorization': 'key=123api', 'Content-Type': 'application/json'}, proxies=None,
             timeout=sentinel.timeout,
         )
 
     def test_plaintext_request_ok(self):
         returns = ['id=123456789']
-        self.gcm.make_request = MagicMock(
-            side_effect=create_side_effect(returns))
-        res = self.gcm.plaintext_request(
-            registration_id='1234', data=self.data, retries=1)
+        self.fcm.make_request = MagicMock(side_effect=create_side_effect(returns))
+        res = self.fcm.plaintext_request(registration_id='1234', data=self.data, retries=1)
         self.assertIsNone(res)
-        # noinspection PyUnresolvedReferences
-        self.assertEqual(self.gcm.make_request.call_count, 1)
+        self.assertEqual(self.fcm.make_request.call_count, 1)
 
     def test_retry_plaintext_request_ok(self):
-        returns = [GCMUnavailableException(),
-                   GCMUnavailableException(),
-                   'id=123456789']
+        returns = [FCMUnavailableException(), FCMUnavailableException(), 'id=123456789']
 
-        self.gcm.make_request = MagicMock(
-            side_effect=create_side_effect(returns))
+        self.fcm.make_request = MagicMock(side_effect=create_side_effect(returns))
         with self.assertRaises(IOError):
-            res = self.gcm.plaintext_request(
-                registration_id='1234', data=self.data, retries=1)
+            res = self.fcm.plaintext_request(registration_id='1234', data=self.data, retries=1)
             self.assertIsNone(res)
-            # noinspection PyUnresolvedReferences
-            self.assertEqual(self.gcm.make_request.call_count, 3)
+            self.assertEqual(self.fcm.make_request.call_count, 3)
 
     def test_retry_plaintext_request_fail(self):
-        returns = [GCMUnavailableException(),
-                   GCMUnavailableException(),
-                   GCMUnavailableException()]
+        returns = [FCMUnavailableException(), FCMUnavailableException(), FCMUnavailableException()]
 
-        self.gcm.make_request = MagicMock(
-            side_effect=create_side_effect(returns))
+        self.fcm.make_request = MagicMock(side_effect=create_side_effect(returns))
         with self.assertRaises(IOError):
-            self.gcm.plaintext_request(
-                registration_id='1234', data=self.data, retries=2)
+            self.fcm.plaintext_request(registration_id='1234', data=self.data, retries=2)
 
-        # noinspection PyUnresolvedReferences
-        self.assertEqual(self.gcm.make_request.call_count, 2)
+        self.assertEqual(self.fcm.make_request.call_count, 2)
 
     def test_retry_json_request_ok(self):
         returns = [self.mock_response_1,
                    self.mock_response_2,
                    self.mock_response_3]
 
-        self.gcm.make_request = MagicMock(
-            side_effect=create_side_effect(returns))
-        res = self.gcm.json_request(
-            registration_ids=['1', '2'], data=self.data)
+        self.fcm.make_request = MagicMock(side_effect=create_side_effect(returns))
+        res = self.fcm.json_request(registration_ids=['1', '2'], data=self.data)
 
-        # noinspection PyUnresolvedReferences
-        self.assertEqual(self.gcm.make_request.call_count, 3)
+        self.assertEqual(self.fcm.make_request.call_count, 3)
         self.assertNotIn('errors', res)
 
     def test_retry_json_request_fail(self):
@@ -365,62 +342,47 @@ class GCMTest(unittest.TestCase):
                    self.mock_response_2,
                    self.mock_response_3]
 
-        self.gcm.make_request = MagicMock(
-            side_effect=create_side_effect(returns))
-        res = self.gcm.json_request(
-            registration_ids=['1', '2'], data=self.data, retries=2)
+        self.fcm.make_request = MagicMock(side_effect=create_side_effect(returns))
+        res = self.fcm.json_request(registration_ids=['1', '2'], data=self.data, retries=2)
 
-        # noinspection PyUnresolvedReferences
-        self.assertEqual(self.gcm.make_request.call_count, 2)
+        self.assertEqual(self.fcm.make_request.call_count, 2)
         self.assertIn('Unavailable', res['errors'])
         self.assertEqual(res['errors']['Unavailable'][0], '1')
 
     def test_retry_topic_request_ok(self):
         message_id = '123456789'
-        returns = [GCMUnavailableException(),
-                   GCMUnavailableException(),
-                   {'message_id': message_id}]
+        returns = [FCMUnavailableException(), FCMUnavailableException(), {'message_id': message_id}]
 
-        self.gcm.make_request = MagicMock(
-            side_effect=create_side_effect(returns))
-        res = self.gcm.send_topic_message(topic='foo', data=self.data)
+        self.fcm.make_request = MagicMock(side_effect=create_side_effect(returns))
+        res = self.fcm.send_topic_message(topic='foo', data=self.data)
 
         self.assertEqual(res, message_id)
-        # noinspection PyUnresolvedReferences
-        self.assertEqual(self.gcm.make_request.call_count, 3)
+        self.assertEqual(self.fcm.make_request.call_count, 3)
 
     def test_retry_topic_request_fail(self):
-        returns = [GCMUnavailableException(),
-                   GCMUnavailableException(),
-                   GCMUnavailableException()]
-        self.gcm.make_request = MagicMock(
-            side_effect=create_side_effect(returns))
+        returns = [FCMUnavailableException(), FCMUnavailableException(), FCMUnavailableException()]
+        self.fcm.make_request = MagicMock(side_effect=create_side_effect(returns))
 
         with self.assertRaises(IOError):
-            self.gcm.send_topic_message(topic='foo', data=self.data, retries=2)
+            self.fcm.send_topic_message(topic='foo', data=self.data, retries=2)
 
-        # noinspection PyUnresolvedReferences
-        self.assertEqual(self.gcm.make_request.call_count, 2)
+        self.assertEqual(self.fcm.make_request.call_count, 2)
 
     def test_retry_exponential_backoff(self):
-        returns = [GCMUnavailableException(),
-                   GCMUnavailableException(),
-                   'id=123456789']
+        returns = [FCMUnavailableException(), FCMUnavailableException(), 'id=123456789']
 
-        self.gcm.make_request = MagicMock(
-            side_effect=create_side_effect(returns))
+        self.fcm.make_request = MagicMock(side_effect=create_side_effect(returns))
 
         with self.assertRaises(IOError):
-            self.gcm.plaintext_request(
-                registration_id='1234', data=self.data, retries=2)
+            self.fcm.plaintext_request(registration_id='1234', data=self.data, retries=2)
 
         # time.sleep is actually mock object.
         self.assertEqual(asyncio.sleep.call_count, 2)
-        backoff = self.gcm.BACKOFF_INITIAL_DELAY
+        backoff = self.fcm.BACKOFF_INITIAL_DELAY
         for arg in asyncio.sleep.call_args_list:
             sleep_time = int(arg[0][0] * 1000)
             self.assertTrue(backoff / 2 <= sleep_time <= backoff * 3 / 2)
-            if 2 * backoff < self.gcm.MAX_BACKOFF_DELAY:
+            if 2 * backoff < self.fcm.MAX_BACKOFF_DELAY:
                 backoff *= 2
 
     @patch('aiohttp.ClientSession.post')
@@ -432,20 +394,18 @@ class GCMTest(unittest.TestCase):
             mock_request.return_value.status_code = status
             mock_request.return_value.headers['Retry-After'] = 30
 
-            self.gcm.make_request = MagicMock(return_value='Error=Unavailable')
-            self.gcm.retry_after = PropertyMock(return_value=True)
+            self.fcm.make_request = MagicMock(return_value='Error=Unavailable')
+            self.fcm.retry_after = PropertyMock(return_value=True)
 
-            self.assertIsNotNone(self.gcm.retry_after)
+            self.assertIsNotNone(self.fcm.retry_after)
 
             with self.assertRaises(IOError):
-                res = self.gcm.plaintext_request(
-                    registration_id='123', data=self.data, retries=retries)
+                res = self.fcm.plaintext_request(registration_id='123', data=self.data, retries=retries)
 
-                self.assertIsNone(self.gcm.retry_after)
+                self.assertIsNone(self.fcm.retry_after)
                 self.assertEqual(asyncio.sleep.call_count, retries + index)
                 self.assertFalse(mock_request.return_value.content.called)
-                # noinspection PyUnresolvedReferences
-                self.assertEqual(self.gcm.make_request.call_count, retries)
+                self.assertEqual(self.fcm.make_request.call_count, retries)
                 print(res)
                 self.assertIn('errors', res)
                 self.assertIn('Unavailable', res['errors'])
@@ -461,49 +421,40 @@ class GCMTest(unittest.TestCase):
             mock_request.return_value.status_code = status
             mock_request.return_value.headers['Retry-After'] = 30
 
-            self.gcm.make_request = MagicMock(
-                return_value=self.mock_response_1)
-            self.gcm.retry_after = PropertyMock(return_value=True)
+            self.fcm.make_request = MagicMock(return_value=self.mock_response_1)
+            self.fcm.retry_after = PropertyMock(return_value=True)
 
-            self.assertIsNotNone(self.gcm.retry_after)
+            self.assertIsNotNone(self.fcm.retry_after)
 
             try:
-                res = self.gcm.json_request(
-                    registration_ids=['1', '2'], data=self.data,
-                    retries=retries)
+                res = self.fcm.json_request(registration_ids=['1', '2'], data=self.data, retries=retries)
             except IOError:
                 self.fail("json_request raised IOError")
 
-            self.assertIsNone(self.gcm.retry_after)
+            self.assertIsNone(self.fcm.retry_after)
             self.assertEqual(asyncio.sleep.call_count, retries + index)
             self.assertFalse(mock_request.return_value.json.called)
-            # noinspection PyUnresolvedReferences
-            self.assertEqual(self.gcm.make_request.call_count, retries)
+            self.assertEqual(self.fcm.make_request.call_count, retries)
             self.assertIn('errors', res)
             self.assertIn('Unavailable', res['errors'])
             self.assertEqual(res['errors']['Unavailable'][0], '1')
             self.assertEqual(res['errors']['Unavailable'][1], '2')
 
-    @patch('logging.getLogger')
-    def test_logging_is_enabled(self, _):
-        self.assertTrue(type(self.gcm.logger), MagicMock)
-        self.assertEqual(self.gcm.logger.debug.call_count, 2)
-        self.gcm.logger.debug.assert_any_call(
-            'Added a stderr logging handler to logger: gcm')
-        self.gcm.logger.debug.assert_any_call(
-            'Added a stderr logging handler to logger: '
-            'requests.packages.urllib3')
+    @patch('fcm.logging.getLogger')
+    def test_logging_is_enabled(self, mock_logging):
+        self.assertTrue(type(FCM.logger), MagicMock)
+        FCM.enable_logging()
+        self.assertEqual(FCM.logger.debug.call_count, 2)
+        FCM.logger.debug.assert_any_call('Added a stderr logging handler to logger: fcm')
+        FCM.logger.debug.assert_any_call('Added a stderr logging handler to logger: requests.packages.urllib3')
 
-    @patch('gcm.logging.getLogger')
-    def test_debug_enables_logging(self, _):
-        self.assertTrue(type(self.gcm.logger), MagicMock)
-        gcm = GCM('123api', debug=True)
-        self.assertEqual(gcm.logger.debug.call_count, 2)
-        gcm.logger.debug.assert_any_call(
-            'Added a stderr logging handler to logger: gcm')
-        gcm.logger.debug.assert_any_call(
-            'Added a stderr logging handler to logger: '
-            'requests.packages.urllib3')
+    @patch('fcm.logging.getLogger')
+    def test_debug_enables_logging(self, mock_logging):
+        self.assertTrue(type(FCM.logger), MagicMock)
+        fcm = FCM('123api', debug=True)
+        self.assertEqual(fcm.logger.debug.call_count, 2)
+        fcm.logger.debug.assert_any_call('Added a stderr logging handler to logger: fcm')
+        fcm.logger.debug.assert_any_call('Added a stderr logging handler to logger: requests.packages.urllib3')
 
     @patch('aiohttp.ClientSession.post')
     def test_make_request_uses_session(self, mock_request):
@@ -517,7 +468,7 @@ class GCMTest(unittest.TestCase):
             # Perform request
             # noinspection PyUnresolvedReferences
             with patch.object(session, 'close') as mock_session_close:
-                self.gcm.make_request(
+                self.fcm.make_request(
                     {'message': 'test'}, is_json=True, session=session
                 )
 
@@ -530,7 +481,7 @@ class GCMTest(unittest.TestCase):
         mock_request.return_value.content = "OK"
         # Perform request
         with patch('requests.Session.close') as mock_session_close:
-            self.gcm.make_request(
+            self.fcm.make_request(
                 {'message': 'test'}, is_json=True
             )
 
@@ -538,27 +489,27 @@ class GCMTest(unittest.TestCase):
 
     def test_type_error_in_handle_plaintext_response(self):
         with self.assertRaises(TypeError):
-            self.gcm.handle_plaintext_response(self.mock_response_1)
+            self.fcm.handle_plaintext_response(self.mock_response_1)
 
     def test_bytes_response_in_handle_plaintext_response(self):
-        with self.assertRaises(GCMUnavailableException):
-            self.gcm.handle_plaintext_response(b'Error=Unavailable')
+        with self.assertRaises(FCMUnavailableException):
+            self.fcm.handle_plaintext_response(b'Error=Unavailable')
 
     def test_missing_registration_exception_is_raised_in_handle_plaintext_response(self):
-        with self.assertRaises(GCMMissingRegistrationException):
-            self.gcm.handle_plaintext_response('Error=MissingRegistration')
+        with self.assertRaises(FCMMissingRegistrationException):
+            self.fcm.handle_plaintext_response('Error=MissingRegistration')
 
     def test_invalid_registration_exception_is_raised_in_handle_plaintext_response(self):
-        with self.assertRaises(GCMInvalidRegistrationException):
-            self.gcm.handle_plaintext_response('Error=InvalidRegistration')
+        with self.assertRaises(FCMInvalidRegistrationException):
+            self.fcm.handle_plaintext_response('Error=InvalidRegistration')
 
     def test_mismatch_senderid_exception_is_raised_in_handle_plaintext_response(self):
-        with self.assertRaises(GCMMismatchSenderIdException):
-            self.gcm.handle_plaintext_response('Error=MismatchSenderId')
+        with self.assertRaises(FCMMismatchSenderIdException):
+            self.fcm.handle_plaintext_response('Error=MismatchSenderId')
 
     def test_messagetobig_registration_exception_is_raised_in_handle_plaintext_response(self):
-        with self.assertRaises(GCMMessageTooBigException):
-            self.gcm.handle_plaintext_response('Error=MessageTooBig')
+        with self.assertRaises(FCMMessageTooBigException):
+            self.fcm.handle_plaintext_response('Error=MessageTooBig')
 
     def test_payload_body_raises_not_implemented_exception(self):
         payload = Payload()
